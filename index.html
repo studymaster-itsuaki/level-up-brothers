@@ -3,6 +3,13 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<meta name="theme-color" content="#245cff" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="Level Up Brothers" />
+<link rel="manifest" href="./manifest.json" />
+<link rel="icon" href="./assets/icons/icon-192.png" />
+<link rel="apple-touch-icon" href="./assets/icons/apple-touch-icon.png" />
 <title>Level Up Brothers Ver.1.0 Beta8</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f5f7fb}
@@ -458,4 +465,6 @@ function ruleDetail(r){if(r.scoreTiers)return `<div class="rule-desc">${r.scoreT
 async function showPolicy(){const v=$('view');try{const s=await getDoc(doc(db,'systemPolicies','general'));if(!s.exists())throw new Error('「ルールについて」が見つかりません。');const d=s.data();v.innerHTML=`<section class="card policy"><h2>${d.title||'ルールについて'}</h2><ul>${(d.items||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join('')}</ul></section>`}catch(e){v.innerHTML=`<section class="card"><div class="status error">${e.message}</div></section>`}}
 function escapeHtml(v){return String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}function escapeAttr(v){return escapeHtml(v).replace(/'/g,'&#39;')}
 const params=new URLSearchParams(location.search);if(params.get('demo')==='1'){renderDemo()}else{const setupToken=location.hash.startsWith('#setup=')?location.hash.slice(7):'';if(setupToken){try{const raw=base64UrlDecode(setupToken);const c=JSON.parse(raw);localStorage.setItem('lubAppConfig',JSON.stringify(c));history.replaceState(null,'',location.pathname+location.search);$('configInput').value=JSON.stringify(c,null,2);await connect(c)}catch(e){status($('configStatus'),'端末設定リンクを読み込めませんでした。','error')}}else{const saved=localStorage.getItem('lubAppConfig')||localStorage.getItem('lubFirebaseConfig');if(saved){try{const c=JSON.parse(saved);$('configInput').value=JSON.stringify(c,null,2);await connect(c)}catch{localStorage.removeItem('lubAppConfig')}}}}
-</script></body></html>
+</script>
+<script src="./js/pwa-register.js" defer></script>
+</body></html>
