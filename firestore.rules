@@ -1,0 +1,132 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function profile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function active() {
+      return signedIn()
+        && (!('active' in profile()) || profile().active != false);
+    }
+
+    function isAdmin() {
+      return active() && profile().role == 'admin';
+    }
+
+    function isViewer() {
+      return active() && profile().role == 'viewer';
+    }
+
+    function isParent() {
+      return isAdmin() || isViewer();
+    }
+
+    function isOwnChild(childId) {
+      return active()
+        && profile().role == 'child'
+        && profile().childId == childId;
+    }
+
+    match /users/{userId} {
+      allow get: if active() && request.auth.uid == userId;
+      allow list: if false;
+      allow create, update, delete: if false;
+
+      match /settings/notifications {
+        allow read: if active() && request.auth.uid == userId;
+        allow create, update: if active()
+          && request.auth.uid == userId
+          && request.resource.data.keys().hasOnly([
+            'enabled', 'createdAt', 'updatedAt'
+          ])
+          && request.resource.data.enabled is bool;
+        allow delete: if active() && request.auth.uid == userId;
+      }
+
+      match /devices/{deviceId} {
+        allow read: if active() && request.auth.uid == userId;
+        allow create, update: if active()
+          && request.auth.uid == userId
+          && request.resource.data.keys().hasOnly([
+            'deviceId', 'token', 'platform', 'userAgent', 'enabled',
+            'createdAt', 'updatedAt', 'lastSeenAt', 'invalidatedAt'
+          ])
+          && request.resource.data.deviceId == deviceId
+          && request.resource.data.enabled is bool
+          && (
+            request.resource.data.token == null
+            || request.resource.data.token is string
+          );
+        allow delete: if active() && request.auth.uid == userId;
+      }
+    }
+
+    match /records/{recordId} {
+      allow read: if isParent() || isOwnChild(resource.data.childId);
+
+      allow create: if isAdmin() || (
+        isOwnChild(request.resource.data.childId)
+        && request.resource.data.childUid == request.auth.uid
+        && request.resource.data.submittedBy == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.calculatedAmount is number
+      );
+
+      allow update: if isAdmin() || (
+        isOwnChild(resource.data.childId)
+        && resource.data.childUid == request.auth.uid
+        && request.resource.data.childId == resource.data.childId
+        && request.resource.data.childUid == resource.data.childUid
+        && request.resource.data.ruleId == resource.data.ruleId
+        && request.resource.data.periodId == resource.data.periodId
+        && resource.data.status in [
+          'pending', 'resubmitted', 'revision_requested'
+        ]
+        && request.resource.data.status in [
+          'pending', 'resubmitted', 'withdrawn'
+        ]
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'inputs', 'calculatedAmount', 'updatedAt',
+          'lastSubmittedAt', 'resubmittedAt', 'withdrawnAt',
+          'photoData', 'photoBytes', 'photoUrl', 'photoPath'
+        ])
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    match /payments/{paymentId} {
+      allow read: if isParent() || isOwnChild(resource.data.childId);
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /terms/{termId} {
+      allow read: if active();
+      allow write: if isAdmin();
+    }
+
+    match /rules/{ruleId} {
+      allow read: if active();
+      allow write: if isAdmin();
+    }
+
+    match /systemPolicies/{policyId} {
+      allow read: if active();
+      allow write: if isAdmin();
+    }
+
+    match /notificationEvents/{eventId} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,4 +1,4 @@
-const CACHE_VERSION = "lub-beta8-pwa-v2";
+const CACHE_VERSION = "lub-beta8-pwa-fcm-v3";
 const APP_SHELL_CACHE = `${CACHE_VERSION}-app-shell`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
@@ -7,6 +7,8 @@ const APP_SHELL = [
   "./index.html",
   "./manifest.json",
   "./js/pwa-register.js",
+  "./js/notification-config.js",
+  "./js/notifications.js",
   "./assets/icons/icon-192.png",
   "./assets/icons/icon-512.png",
   "./assets/icons/icon-maskable-512.png",
@@ -100,9 +102,56 @@ self.addEventListener("fetch", event => {
   );
 });
 
-/*
- * Firebase Cloud Messaging extension point:
- * When FCM is introduced, initialize Firebase Messaging in this worker and add
- * a "push" or onBackgroundMessage handler here. Keeping one worker at the app
- * scope avoids competing service-worker registrations.
- */
+self.addEventListener("push", event => {
+  if (!event.data) return;
+
+  event.waitUntil((async () => {
+    let payload;
+    try {
+      payload = event.data.json();
+    } catch {
+      payload = { data: { body: event.data.text() } };
+    }
+    const data = payload.data || payload;
+    const title = data.title || "Level Up Brothers";
+    const body = data.body || "";
+    const uniqueId = data.recordId || data.paymentId || Date.now().toString();
+
+    await self.registration.showNotification(title, {
+      body,
+      icon: new URL("./assets/icons/icon-192.png", self.registration.scope).href,
+      badge: new URL("./assets/icons/icon-192.png", self.registration.scope).href,
+      tag: `lub-${data.type || "notice"}-${uniqueId}`,
+      renotify: false,
+      data: {
+        url: data.url || "./",
+        type: data.type || "",
+        recordId: data.recordId || "",
+        paymentId: data.paymentId || ""
+      }
+    });
+  })());
+});
+
+self.addEventListener("notificationclick", event => {
+  event.notification.close();
+  const targetUrl = new URL(
+    event.notification.data?.url || "./",
+    self.registration.scope
+  ).href;
+
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({
+      type: "window",
+      includeUncontrolled: true
+    });
+    const existing = windows.find(client =>
+      client.url.startsWith(self.registration.scope)
+    );
+    if (existing) {
+      if ("navigate" in existing) await existing.navigate(targetUrl);
+      return existing.focus();
+    }
+    return self.clients.openWindow(targetUrl);
+  })());
+});
