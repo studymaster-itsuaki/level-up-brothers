@@ -8,11 +8,70 @@ import {
   deleteToken,
   getMessaging,
   getToken,
-  isSupported
+  isSupported,
+  onMessage
 } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-messaging.js";
 import { NOTIFICATION_CONFIG } from "./notification-config.js";
 
 let context = null;
+let stopForegroundMessages = null;
+let lastVisibleNotification = "";
+
+function visibleNotificationKey(data) {
+  return [data?.type, data?.recordId, data?.paymentId, data?.title, data?.body]
+    .filter(Boolean)
+    .join("|");
+}
+
+function showVisibleNotification(data = {}) {
+  const key = visibleNotificationKey(data);
+  if (key && key === lastVisibleNotification) return;
+  lastVisibleNotification = key;
+  window.setTimeout(() => {
+    if (lastVisibleNotification === key) lastVisibleNotification = "";
+  }, 3000);
+
+  const existing = document.getElementById("lubForegroundNotification");
+  if (existing) existing.remove();
+  const notice = document.createElement("button");
+  notice.id = "lubForegroundNotification";
+  notice.type = "button";
+  notice.setAttribute("aria-live", "assertive");
+  notice.style.cssText = "position:fixed;z-index:3000;top:max(12px,env(safe-area-inset-top));left:50%;transform:translateX(-50%);width:min(92vw,520px);padding:14px 16px;border:0;border-radius:14px;background:#172033;color:#fff;text-align:left;box-shadow:0 12px 34px rgba(0,0,0,.28);cursor:pointer";
+  const title = document.createElement("strong");
+  title.textContent = data.title || "Level Up Brothers";
+  title.style.cssText = "display:block;margin-bottom:4px";
+  const body = document.createElement("span");
+  body.textContent = data.body || "新しいお知らせがあります。";
+  notice.append(title, body);
+  notice.onclick = () => {
+    notice.remove();
+    const url = new URL(data.url || "./", location.href).href;
+    window.__lubPendingNotificationUrl = url;
+    window.dispatchEvent(new CustomEvent("lub-notification-open", {
+      detail: { url }
+    }));
+  };
+  document.body.appendChild(notice);
+  window.setTimeout(() => notice.remove(), 8000);
+}
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.addEventListener("message", event => {
+    if (event.data?.type === "LUB_PUSH_RECEIVED") {
+      console.info("[LUB] Background FCM message received", event.data.data);
+      if (document.visibilityState === "visible") {
+        showVisibleNotification(event.data.data);
+      }
+    }
+    if (event.data?.type === "LUB_NOTIFICATION_CLICK" && event.data.url) {
+      window.__lubPendingNotificationUrl = event.data.url;
+      window.dispatchEvent(new CustomEvent("lub-notification-open", {
+        detail: { url: event.data.url }
+      }));
+    }
+  });
+}
 
 function defaultEnabled(role) {
   return role === "admin" || role === "child";
@@ -179,6 +238,17 @@ export async function initializeNotifications(nextContext) {
   try {
     await loadSettings();
     await refreshExistingToken();
+    if (!stopForegroundMessages && await isSupported()) {
+      stopForegroundMessages = onMessage(getMessaging(context.app), payload => {
+        const data = {
+          ...(payload.data || {}),
+          title: payload.data?.title || payload.notification?.title,
+          body: payload.data?.body || payload.notification?.body
+        };
+        console.info("[LUB] Foreground FCM message received", data);
+        showVisibleNotification(data);
+      });
+    }
   } catch (error) {
     console.warn("通知設定の初期化に失敗しました。", error);
   }

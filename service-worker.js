@@ -1,4 +1,4 @@
-const CACHE_VERSION = "lub-beta8-pwa-fcm-v5";
+const CACHE_VERSION = "lub-beta8-pwa-fcm-v6";
 const APP_SHELL_CACHE = `${CACHE_VERSION}-app-shell`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
@@ -102,34 +102,94 @@ self.addEventListener("fetch", event => {
   );
 });
 
-self.addEventListener("push", event => {
-  if (!event.data) return;
+function parsePushData(eventData) {
+  if (!eventData) return {};
+  let payload;
+  try {
+    payload = eventData.json();
+  } catch {
+    return { body: eventData.text() };
+  }
 
-  event.waitUntil((async () => {
-    let payload;
+  let data = payload?.data || payload || {};
+  if (typeof data === "string") {
     try {
-      payload = event.data.json();
+      data = JSON.parse(data);
     } catch {
-      payload = { data: { body: event.data.text() } };
+      data = { body: data };
     }
-    const data = payload.data || payload;
-    const title = data.title || "Level Up Brothers";
-    const body = data.body || "";
-    const uniqueId = data.recordId || data.paymentId || Date.now().toString();
+  }
+  if (typeof data?.data === "string") {
+    try {
+      data = { ...data, ...JSON.parse(data.data) };
+    } catch {
+      // 通常の文字列データはそのまま利用する。
+    }
+  }
 
-    await self.registration.showNotification(title, {
-      body,
-      icon: new URL("./assets/icons/icon-192.png", self.registration.scope).href,
-      badge: new URL("./assets/icons/icon-192.png", self.registration.scope).href,
-      tag: `lub-${data.type || "notice"}-${uniqueId}`,
-      renotify: false,
-      data: {
-        url: data.url || "./",
-        type: data.type || "",
-        recordId: data.recordId || "",
-        paymentId: data.paymentId || ""
-      }
+  return {
+    ...data,
+    title: data.title || payload?.notification?.title || "Level Up Brothers",
+    body: data.body || payload?.notification?.body || "",
+    url: data.url || payload?.fcmOptions?.link || payload?.webpush?.fcmOptions?.link || "./"
+  };
+}
+
+async function tellOpenClients(data) {
+  const windows = await self.clients.matchAll({
+    type: "window",
+    includeUncontrolled: true
+  });
+  windows.forEach(client => client.postMessage({
+    type: "LUB_PUSH_RECEIVED",
+    data
+  }));
+}
+
+self.addEventListener("push", event => {
+  event.waitUntil((async () => {
+    const data = parsePushData(event.data);
+    const uniqueId = data.recordId || data.paymentId || Date.now().toString();
+    const notificationData = {
+      url: data.url || "./",
+      type: data.type || "",
+      recordId: data.recordId || "",
+      paymentId: data.paymentId || "",
+      childId: data.childId || ""
+    };
+
+    console.info("[LUB SW] FCM push received", {
+      type: notificationData.type,
+      recordId: notificationData.recordId,
+      paymentId: notificationData.paymentId
     });
+
+    try {
+      await self.registration.showNotification(
+        data.title || "Level Up Brothers",
+        {
+          body: data.body || "新しいお知らせがあります。",
+          icon: new URL("./assets/icons/icon-192.png", self.registration.scope).href,
+          badge: new URL("./assets/icons/icon-192.png", self.registration.scope).href,
+          tag: `lub-${notificationData.type || "notice"}-${uniqueId}`,
+          renotify: false,
+          silent: false,
+          data: notificationData
+        }
+      );
+      console.info("[LUB SW] showNotification completed", {
+        tag: `lub-${notificationData.type || "notice"}-${uniqueId}`
+      });
+    } catch (error) {
+      console.error("[LUB SW] showNotification failed", error);
+      throw error;
+    } finally {
+      await tellOpenClients({
+        ...notificationData,
+        title: data.title || "Level Up Brothers",
+        body: data.body || "新しいお知らせがあります。"
+      });
+    }
   })());
 });
 
@@ -149,8 +209,12 @@ self.addEventListener("notificationclick", event => {
       client.url.startsWith(self.registration.scope)
     );
     if (existing) {
-      if ("navigate" in existing) await existing.navigate(targetUrl);
-      return existing.focus();
+      await existing.focus();
+      existing.postMessage({
+        type: "LUB_NOTIFICATION_CLICK",
+        url: targetUrl
+      });
+      return;
     }
     return self.clients.openWindow(targetUrl);
   })());
