@@ -43,6 +43,10 @@ firebase deploy --only functions
 他の通知Functionsとあわせてデプロイしてください。リセットはFunctions側でも
 `users/{uid}.role == admin`かつ有効なアカウントであることを検証します。
 
+`syncAkitoRewardRules`も同時にデプロイされます。デプロイとGitHub Pages更新後、
+adminで「管理」→「暁斗の報酬設定を反映」を一度実行してください。この処理は
+`childId == akito`のrulesだけを置き換え、長男のrulesは変更しません。
+
 デプロイされるFunctions：
 
 - `notifyParentsOnRecordCreated`
