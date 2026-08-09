@@ -306,6 +306,30 @@ export async function showNotificationSettings(view) {
     const enableButton = document.getElementById("enableNotifications");
     const output = document.getElementById("notificationStatus");
 
+    const enableCurrentDevice = async () => {
+      deviceToggle.disabled = true;
+      if (enableButton) enableButton.disabled = true;
+      output.textContent = "端末を登録しています…";
+      output.className = "status";
+      try {
+        await registerCurrentDevice();
+        userToggle.checked = true;
+        deviceToggle.checked = true;
+        output.textContent = "この端末の通知をONにしました。";
+        output.className = "status ok";
+        document.getElementById("notificationPermission").textContent =
+          permissionLabel(await messagingSupport());
+        if (enableButton) enableButton.classList.add("hidden");
+      } catch (error) {
+        deviceToggle.checked = false;
+        output.textContent = error.message;
+        output.className = "status error";
+        if (enableButton) enableButton.disabled = false;
+      } finally {
+        deviceToggle.disabled = false;
+      }
+    };
+
     userToggle.onchange = async () => {
       userToggle.disabled = true;
       try {
@@ -328,9 +352,7 @@ export async function showNotificationSettings(view) {
 
     deviceToggle.onchange = async () => {
       if (deviceToggle.checked) {
-        deviceToggle.checked = false;
-        output.textContent = "「通知を有効にする」ボタンから設定してください。";
-        output.className = "status warning";
+        await enableCurrentDevice();
         return;
       }
       deviceToggle.disabled = true;
@@ -351,25 +373,7 @@ export async function showNotificationSettings(view) {
       }
     };
 
-    if (enableButton) enableButton.onclick = async () => {
-      enableButton.disabled = true;
-      output.textContent = "端末を登録しています…";
-      output.className = "status";
-      try {
-        await registerCurrentDevice();
-        userToggle.checked = true;
-        deviceToggle.checked = true;
-        output.textContent = "この端末の通知をONにしました。";
-        output.className = "status ok";
-        document.getElementById("notificationPermission").textContent =
-          permissionLabel(await messagingSupport());
-        enableButton.classList.add("hidden");
-      } catch (error) {
-        output.textContent = error.message;
-        output.className = "status error";
-        enableButton.disabled = false;
-      }
-    };
+    if (enableButton) enableButton.onclick = enableCurrentDevice;
   } catch (error) {
     view.innerHTML = `<section class="card"><h2>通知設定</h2><div class="status error">${escapeHtml(error.message || error)}</div></section>`;
   }

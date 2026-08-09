@@ -115,7 +115,26 @@ OFFにします。通知解除に失敗してもログアウト処理は続行�
 
 既存の1つの `service-worker.js` にpush受信と通知タップを統合しました。
 別Service Workerは登録しないため、PWAキャッシュとFCMが競合しません。
-キャッシュ世代は `lub-beta8-pwa-fcm-v5` です。
+キャッシュ世代は `lub-beta8-pwa-fcm-v7` です。
+
+## PC通知表示と通知タップの改善
+
+- data-only FCM messageの複数のペイロード形式をService Workerで正規化
+- `title`、`body`、`url`、`type`、`recordId`、`paymentId`、`childId`を
+  dataから取得して `showNotification()` へ渡す処理を明確化
+- FCM受信時と通知表示の成功・失敗をService Workerのコンソールへ記録
+- ページ表示中はFirebase Messagingの `onMessage()` とService Workerからの
+  メッセージを受け、画面上部に通知を表示
+- 通知タップ時は既存PWAウィンドウを先にfocusし、再読込せず通知先画面へ遷移
+- PWAが開いていない場合は、Firebase初期化を待たずに `openWindow()` を実行
+- PWAキャッシュとFCMは従来どおり同じ1つのService Workerで処理
+
+## PC端末の通知再登録
+
+- 「この端末で通知を受け取る」をONにした時点で端末登録を実行
+- PCでも `getToken()` と `saveDevice(token, true)` が実行される導線へ統一
+- 既存の「通知を有効にする」ボタンも同じ端末登録処理を使用
+- 登録失敗時はチェックをOFFへ戻し、従来どおり画面にエラーを表示
 
 ## 長男・夏休み宿題の証拠必須化
 
