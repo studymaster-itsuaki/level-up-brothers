@@ -1,4 +1,4 @@
-const CACHE_VERSION = "lub-beta8-pwa-fcm-v8-minimal-test";
+const CACHE_VERSION = "lub-beta8-pwa-fcm-v8";
 const APP_SHELL_CACHE = `${CACHE_VERSION}-app-shell`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
@@ -149,6 +149,7 @@ async function tellOpenClients(data) {
 self.addEventListener("push", event => {
   event.waitUntil((async () => {
     const data = parsePushData(event.data);
+    const uniqueId = data.recordId || data.paymentId || Date.now().toString();
     const notificationData = {
       url: data.url || "./",
       type: data.type || "",
@@ -165,12 +166,20 @@ self.addEventListener("push", event => {
 
     try {
       await self.registration.showNotification(
-        "LUB TEST",
+        data.title || "Level Up Brothers",
         {
-          body: "テスト通知"
+          body: data.body || "新しいお知らせがあります。",
+          icon: new URL("./assets/icons/icon-192.png", self.registration.scope).href,
+          badge: new URL("./assets/icons/icon-192.png", self.registration.scope).href,
+          tag: `lub-${notificationData.type || "notice"}-${uniqueId}`,
+          renotify: false,
+          silent: false,
+          data: notificationData
         }
       );
-      console.info("[LUB SW] minimal showNotification completed");
+      console.info("[LUB SW] showNotification completed", {
+        tag: `lub-${notificationData.type || "notice"}-${uniqueId}`
+      });
     } catch (error) {
       console.error("[LUB SW] showNotification failed", error);
       throw error;

@@ -39,6 +39,10 @@ cd ..
 firebase deploy --only functions
 ```
 
+`resetTestData`は管理者画面のリセット機能に必要です。GitHub Pagesを更新する前に、
+他の通知Functionsとあわせてデプロイしてください。リセットはFunctions側でも
+`users/{uid}.role == admin`かつ有効なアカウントであることを検証します。
+
 デプロイされるFunctions：
 
 - `notifyParentsOnRecordCreated`

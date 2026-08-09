@@ -115,7 +115,7 @@ OFFにします。通知解除に失敗してもログアウト処理は続行�
 
 既存の1つの `service-worker.js` にpush受信と通知タップを統合しました。
 別Service Workerは登録しないため、PWAキャッシュとFCMが競合しません。
-キャッシュ世代は `lub-beta8-pwa-fcm-v7` です。
+キャッシュ世代は `lub-beta8-pwa-fcm-v8` です。
 
 ## PC通知表示と通知タップの改善
 
@@ -135,6 +135,25 @@ OFFにします。通知解除に失敗してもログアウト処理は続行�
 - PCでも `getToken()` と `saveDevice(token, true)` が実行される導線へ統一
 - 既存の「通知を有効にする」ボタンも同じ端末登録処理を使用
 - 登録失敗時はチェックをOFFへ戻し、従来どおり画面にエラーを表示
+
+## 正式版前の最終調整
+
+### 夏休み宿題の教科選択
+
+- 長男の夏休み宿題だけ、教科ごとの最新申請状態から選択肢を生成
+- `pending`、`resubmitted`、`approved`、`rejected`の教科を非表示
+- `revision_requested`の教科は修正・再提出できるよう再表示
+- 画面表示後に状態が変わった場合に備え、保存直前にも同じ条件を再確認
+- 他の報酬項目の選択肢と申請条件は変更なし
+
+### 管理者用テストデータリセット
+
+- 管理者ナビゲーションへ「管理」を追加
+- 確認画面の「リセットする」を押した場合だけCallable Functionを実行
+- `records`、`payments`、`notificationEvents`、
+  `users/{uid}/notifications`を削除
+- users、terms、rules、systemPolicies、settings、devicesは保持
+- Cloud Function側でもログイン状態、adminロール、active状態を検証
 
 ## 長男・夏休み宿題の証拠必須化
 
