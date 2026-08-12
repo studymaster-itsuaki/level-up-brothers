@@ -115,7 +115,7 @@ OFFにします。通知解除に失敗してもログアウト処理は続行�
 
 既存の1つの `service-worker.js` にpush受信と通知タップを統合しました。
 別Service Workerは登録しないため、PWAキャッシュとFCMが競合しません。
-現在のキャッシュ世代は `lub-beta8-pwa-fcm-v12` です。
+現在のキャッシュ世代は `lub-beta8-pwa-fcm-v13` です。
 
 ## PC通知表示と通知タップの改善
 
@@ -200,6 +200,16 @@ OFFにします。通知解除に失敗してもログアウト処理は続行�
 - 原寸DataURLは生成・保持せず、canvasとImageBitmapは処理後に解放
 - カメラ画像受領、圧縮開始、圧縮完了、photos追加直前をコンソールへ記録
 - PWAキャッシュ世代を`lub-beta8-pwa-fcm-v12`へ更新
+- Android PWAの安定性を優先し、写真選択直後の圧縮を廃止
+- 選択直後は原寸画像を開かず、写真アイコン・ファイル名・容量だけを表示
+- JPEG変換とFirestore用データ生成は「申請する」「修正して再送信」の後に開始
+- `js/photo-worker.js`を追加し、対応端末では画像デコード・canvas・JPEG変換を
+  UIスレッド外で実行
+- 画像はWorkerを1枚ごとに作成・終了し、必ず直列処理してメモリを解放
+- 各画像の間で`requestIdleCallback`または`setTimeout`によりUIへ制御を戻す
+- Androidで安全なWorker処理を利用できない場合、原寸デコードへ自動フォールバックせず
+  エラー表示してページクラッシュを回避
+- PWAキャッシュ世代を`lub-beta8-pwa-fcm-v13`へ更新
 
 ## 起動画面
 

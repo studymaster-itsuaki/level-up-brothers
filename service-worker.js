@@ -1,4 +1,4 @@
-const CACHE_VERSION = "lub-beta8-pwa-fcm-v12";
+const CACHE_VERSION = "lub-beta8-pwa-fcm-v13";
 const APP_SHELL_CACHE = `${CACHE_VERSION}-app-shell`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
@@ -9,6 +9,7 @@ const APP_SHELL = [
   "./js/pwa-register.js",
   "./js/notification-config.js",
   "./js/notifications.js",
+  "./js/photo-worker.js",
   "./assets/icons/icon-192.png",
   "./assets/icons/icon-512.png",
   "./assets/icons/icon-maskable-512.png",
