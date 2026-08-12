@@ -71,6 +71,7 @@ firebase emulators:start --only firestore
 - 次男：`childId == akito` のrecords/paymentsだけ閲覧可能
 - child：本人名義のpending申請を作成可能
 - child：pending、resubmitted、revision_requestedの本人申請だけ編集可能
+- child：`photos`は配列かつ最大5件の場合だけ保存可能
 - child：statusをapproved/rejectedへ変更できない
 - child：paymentsを作成・更新できない
 - devices：本人のパスだけ読み書き可能
