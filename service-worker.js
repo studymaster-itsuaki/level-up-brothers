@@ -1,4 +1,4 @@
-const CACHE_VERSION = "lub-beta8-pwa-fcm-v13";
+const CACHE_VERSION = "lub-beta8-pwa-fcm-v14";
 const APP_SHELL_CACHE = `${CACHE_VERSION}-app-shell`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
