@@ -7,6 +7,7 @@ const {
   onDocumentCreated,
   onDocumentUpdated
 } = require("firebase-functions/v2/firestore");
+const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { logger } = require("firebase-functions");
 
 initializeApp();
@@ -17,6 +18,192 @@ const INVALID_TOKEN_CODES = new Set([
   "messaging/invalid-registration-token",
   "messaging/registration-token-not-registered"
 ]);
+
+async function deleteCollectionDocuments(collectionRef) {
+  let deleted = 0;
+  while (true) {
+    const snapshot = await collectionRef.limit(400).get();
+    if (snapshot.empty) return deleted;
+    const batch = db.batch();
+    snapshot.docs.forEach(document => batch.delete(document.ref));
+    await batch.commit();
+    deleted += snapshot.size;
+  }
+}
+
+exports.resetTestData = onCall({ region: REGION }, async request => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "ログインが必要です。");
+  }
+
+  const profileSnapshot = await db.collection("users").doc(request.auth.uid).get();
+  const profile = profileSnapshot.data();
+  if (
+    !profileSnapshot.exists ||
+    profile?.role !== "admin" ||
+    profile?.active === false
+  ) {
+    throw new HttpsError("permission-denied", "管理者だけが実行できます。");
+  }
+
+  const users = await db.collection("users").get();
+  const notificationCounts = await Promise.all(
+    users.docs.map(userDoc =>
+      deleteCollectionDocuments(userDoc.ref.collection("notifications"))
+    )
+  );
+  const [records, payments, notificationEvents] = await Promise.all([
+    deleteCollectionDocuments(db.collection("records")),
+    deleteCollectionDocuments(db.collection("payments")),
+    deleteCollectionDocuments(db.collection("notificationEvents"))
+  ]);
+  const notifications = notificationCounts.reduce((sum, count) => sum + count, 0);
+
+  logger.warn("Test data reset completed", {
+    adminUid: request.auth.uid,
+    records,
+    payments,
+    notifications,
+    notificationEvents
+  });
+  return { records, payments, notifications, notificationEvents };
+});
+
+async function requireAdmin(request) {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "ログインが必要です。");
+  }
+  const profileSnapshot = await db.collection("users").doc(request.auth.uid).get();
+  const profile = profileSnapshot.data();
+  if (
+    !profileSnapshot.exists ||
+    profile?.role !== "admin" ||
+    profile?.active === false
+  ) {
+    throw new HttpsError("permission-denied", "管理者だけが実行できます。");
+  }
+}
+
+function akitoRule(periodId, id, data) {
+  return {
+    ref: db.collection("rules").doc(`akito-${periodId}-${id}`),
+    data: {
+      childId: "akito",
+      periodId,
+      active: true,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+      ...data
+    }
+  };
+}
+
+function akitoSchoolRules(periodId) {
+  return [
+    akitoRule(periodId, "color-test", {
+      name: "カラーテスト100点",
+      description: "カラーテストで100点",
+      category: "school",
+      calculationType: "fixedTest",
+      amount: 100,
+      subjects: ["国語", "算数", "理科", "社会", "英語"],
+      evidenceType: "photoRequired",
+      sortOrder: 10
+    }),
+    akitoRule(periodId, "kanji-test", {
+      name: "漢字テスト100点",
+      description: "漢字テストで100点",
+      category: "school",
+      calculationType: "fixedTest",
+      amount: 50,
+      evidenceType: "photoRequired",
+      sortOrder: 20
+    }),
+    akitoRule(periodId, "challenge-touch", {
+      name: "チャレンジタッチ（月完了）",
+      description: "その月のチャレンジタッチを完了",
+      category: "school",
+      calculationType: "fixedMonthly",
+      amount: 200,
+      evidenceType: "parentConfirmation",
+      sortOrder: 30
+    }),
+    akitoRule(periodId, "report-circle-double", {
+      name: "通知表◎",
+      description: "通知表の◎の個数 × 100円",
+      category: "school",
+      calculationType: "countMultiplier",
+      unitAmount: 100,
+      countLabel: "◎はいくつありましたか？",
+      countUnit: "個",
+      evidenceType: "parentConfirmation",
+      sortOrder: 40
+    })
+  ];
+}
+
+function akitoSummerRules(periodId) {
+  return [
+    akitoRule(periodId, "summer-homework", {
+      name: "夏休み宿題完成",
+      description: "夏休みの宿題を完成",
+      category: "summer",
+      calculationType: "fixed",
+      amount: 500,
+      evidenceType: "parentConfirmation",
+      sortOrder: 10
+    }),
+    akitoRule(periodId, "self-study", {
+      name: "自主勉強30分以上",
+      description: "自主勉強を30分以上（1日1回まで）",
+      category: "summer",
+      calculationType: "fixedPerSession",
+      amount: 50,
+      minimumMinutes: 30,
+      evidenceType: "photoOrRecord",
+      sortOrder: 20
+    }),
+    akitoRule(periodId, "challenge-touch", {
+      name: "チャレンジタッチ（月完了）",
+      description: "その月のチャレンジタッチを完了",
+      category: "summer",
+      calculationType: "fixedMonthly",
+      amount: 200,
+      evidenceType: "parentConfirmation",
+      sortOrder: 30
+    })
+  ];
+}
+
+exports.syncAkitoRewardRules = onCall({ region: REGION }, async request => {
+  await requireAdmin(request);
+  const terms = await db.collection("terms").get();
+  if (terms.empty) {
+    throw new HttpsError("failed-precondition", "学期設定がありません。");
+  }
+
+  const existing = await db.collection("rules")
+    .where("childId", "==", "akito")
+    .get();
+  const targetTerms = terms.docs.filter(term => term.id !== "2026-1");
+  const rules = targetTerms.flatMap(term =>
+    String(term.id).endsWith("-summer")
+      ? akitoSummerRules(term.id)
+      : akitoSchoolRules(term.id)
+  );
+  const writer = db.bulkWriter();
+  existing.docs.forEach(document => writer.delete(document.ref));
+  rules.forEach(rule => writer.set(rule.ref, rule.data));
+  await writer.close();
+
+  logger.info("Akito reward rules synchronized", {
+    adminUid: request.auth.uid,
+    deleted: existing.size,
+    created: rules.length,
+    terms: targetTerms.length
+  });
+  return { deleted: existing.size, created: rules.length, terms: targetTerms.length };
+});
 
 function defaultNotificationsEnabled(role) {
   return role === "admin" || role === "child";
@@ -93,9 +280,41 @@ function matchesRecipientTarget(user, userId, target) {
   return target.type === "uid" && userId === target.uid;
 }
 
-async function recipientDevices(target) {
+async function recipientDevices(target, debugContext = null) {
   const users = await queryRecipientUsers(target);
   const recipients = [];
+
+  if (debugContext) {
+    logger.info("Record status notification recipient users", {
+      recordId: debugContext.recordId,
+      childId: debugContext.childId,
+      userIds: users.docs.map(userDoc => userDoc.id)
+    });
+
+    for (const userDoc of users.docs) {
+      const user = userDoc.data();
+      const [settings, allDevices] = await Promise.all([
+        userDoc.ref.collection("settings").doc("notifications").get(),
+        userDoc.ref.collection("devices").get()
+      ]);
+      logger.info("Record status notification user details", {
+        recordId: debugContext.recordId,
+        childId: debugContext.childId,
+        userId: userDoc.id,
+        role: user.role || null,
+        notificationsEnabled: settings.exists
+          ? settings.data().enabled === true
+          : null,
+        deviceCount: allDevices.size,
+        devices: allDevices.docs.map(device => ({
+          deviceId: device.id,
+          enabled: device.data().enabled === true,
+          hasToken: typeof device.data().token === "string" &&
+            device.data().token.length > 0
+        }))
+      });
+    }
+  }
 
   for (const userDoc of users.docs) {
     const user = userDoc.data();
@@ -127,6 +346,13 @@ async function recipientDevices(target) {
         });
       }
     }
+  }
+  if (debugContext) {
+    logger.info("Record status notification final recipients", {
+      recordId: debugContext.recordId,
+      childId: debugContext.childId,
+      tokenCount: recipients.length
+    });
   }
   return recipients;
 }
@@ -174,7 +400,14 @@ async function sendToDevices(devices, notification) {
   };
 }
 
-async function processNotification(event, kind, sourcePath, recipientTarget, notification) {
+async function processNotification(
+  event,
+  kind,
+  sourcePath,
+  recipientTarget,
+  notification,
+  debugContext = null
+) {
   const claimed = await claimEvent(event.id, kind, sourcePath);
   if (!claimed) {
     logger.info("Duplicate notification event skipped", { eventId: event.id, kind });
@@ -182,7 +415,7 @@ async function processNotification(event, kind, sourcePath, recipientTarget, not
   }
 
   try {
-    const devices = await recipientDevices(recipientTarget);
+    const devices = await recipientDevices(recipientTarget, debugContext);
     const result = await sendToDevices(devices, notification);
     await finishEvent(event.id, "completed", result);
   } catch (error) {
@@ -195,6 +428,22 @@ async function processNotification(event, kind, sourcePath, recipientTarget, not
       error: shortText(error?.message || error, 300)
     });
   }
+}
+
+async function saveChildNotification(childUid, notification, recordId, status) {
+  await db.collection("users")
+    .doc(childUid)
+    .collection("notifications")
+    .add({
+      type: notification.type,
+      title: notification.title,
+      body: notification.body,
+      createdAt: FieldValue.serverTimestamp(),
+      isRead: false,
+      recordId,
+      status,
+      childUid
+    });
 }
 
 exports.notifyParentsOnRecordCreated = onDocumentCreated({
@@ -236,6 +485,12 @@ exports.notifyOnRecordStatusChanged = onDocumentUpdated({
   if (!before || !after || before.status === after.status) return;
 
   const snapshot = event.data.after;
+  logger.info("Record status changed", {
+    recordId: snapshot.id,
+    childId: after.childId || null,
+    beforeStatus: before.status,
+    afterStatus: after.status
+  });
   const childTarget = { type: "child", childId: after.childId };
   const parentTarget = { type: "parents" };
   const ruleName = shortText(after.ruleName || "実績", 50);
@@ -279,17 +534,47 @@ exports.notifyOnRecordStatusChanged = onDocumentUpdated({
   const message = messages[after.status];
   if (!message || !after.childId) return;
 
+  const childNotification = {
+    ...message,
+    type: "record",
+    childId: after.childId,
+    recordId: snapshot.id,
+    url: `./?notification=record&recordId=${encodeURIComponent(snapshot.id)}`
+  };
+
+  if (after.childUid) {
+    try {
+      await saveChildNotification(
+        after.childUid,
+        childNotification,
+        snapshot.id,
+        after.status
+      );
+    } catch (error) {
+      logger.error("Failed to save child notification", {
+        recordId: snapshot.id,
+        childUid: after.childUid,
+        status: after.status,
+        error: error?.message || String(error)
+      });
+    }
+  } else {
+    logger.warn("Child notification was not saved because childUid is missing", {
+      recordId: snapshot.id,
+      childId: after.childId,
+      status: after.status
+    });
+  }
+
   await processNotification(
     event,
     `record-${after.status}`,
     snapshot.ref.path,
     childTarget,
+    childNotification,
     {
-      ...message,
-      type: "record",
-      childId: after.childId,
       recordId: snapshot.id,
-      url: `./?notification=record&recordId=${encodeURIComponent(snapshot.id)}`
+      childId: after.childId
     }
   );
 });

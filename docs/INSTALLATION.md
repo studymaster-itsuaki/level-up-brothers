@@ -46,6 +46,10 @@ firebase deploy --only functions
 `syncAkitoRewardRules`も同時にデプロイされます。デプロイとGitHub Pages更新後、
 adminで「管理」→「暁斗の報酬設定を反映」を一度実行してください。この処理は
 `childId == akito`のrulesだけを置き換え、長男のrulesは変更しません。
+今回の最終調整では、カラーテストの教科名「英語」と通知表◎の案内文もこの同期で
+Firestoreへ反映されます。
+暁斗の夏休み自主勉強には「1日1回まで」の説明も反映されるため、今回の更新後も
+同じボタンを再実行してください。
 
 デプロイされるFunctions：
 
