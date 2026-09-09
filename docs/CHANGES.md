@@ -148,12 +148,20 @@ OFFにします。通知解除に失敗してもログアウト処理は続行�
 
 ### 管理者用テストデータリセット
 
-- 管理者ナビゲーションへ「管理」を追加
-- 確認画面の「リセットする」を押した場合だけCallable Functionを実行
+- 管理画面から全件リセットのUIと呼び出し処理を削除
+- 既にデプロイ済みのCallable Functionは意図せず削除しないようFunctionsソースに保持
 - `records`、`payments`、`notificationEvents`、
-  `users/{uid}/notifications`を削除
+  `users/{uid}/notifications`を一括削除する旧Functionのため、個別データ削除には使用しない
 - users、terms、rules、systemPolicies、settings、devicesは保持
 - Cloud Function側でもログイン状態、adminロール、active状態を検証
+
+### 管理者用「暁斗のルール」
+
+- adminナビゲーションに「暁斗のルール」を追加
+- 既存の一輝用ルール表示と同じFirestore Query・カード表示を利用
+- 暁斗の期間IDは表示・グループ化時に限定的に正規化し、`2026−3`も
+  「2026年3学期」と表示
+- viewerの権限とナビゲーションは変更なし
 
 ## 長男・夏休み宿題の証拠必須化
 

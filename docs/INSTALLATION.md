@@ -39,9 +39,9 @@ cd ..
 firebase deploy --only functions
 ```
 
-`resetTestData`は管理者画面のリセット機能に必要です。GitHub Pagesを更新する前に、
-他の通知Functionsとあわせてデプロイしてください。リセットはFunctions側でも
-`users/{uid}.role == admin`かつ有効なアカウントであることを検証します。
+`resetTestData`は旧テスト用の全件リセットFunctionです。現在の管理画面からは
+呼び出しません。既にデプロイ済みのFunctionを意図せず削除しないため、Functions
+ソースには残しています。
 
 `syncAkitoRewardRules`も同時にデプロイされます。デプロイとGitHub Pages更新後、
 adminで「管理」→「暁斗の報酬設定を反映」を一度実行してください。この処理は
