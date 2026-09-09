@@ -177,10 +177,41 @@ function akitoSummerRules(periodId) {
 
 const AKITO_TARGET_PERIOD_IDS = ["2026-2", "2026-3", "2026-summer"];
 
+function normalizePeriodId(value) {
+  return String(value || "")
+    .trim()
+    .replace(/[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g, "-");
+}
+
 function stringCodePoints(value) {
   return Array.from(String(value)).map(character =>
     `U+${character.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}`
   );
+}
+
+function validateAkitoTargetTerms(termDocuments) {
+  const normalizedTerms = termDocuments.map(term => ({
+    id: term.id,
+    normalizedId: normalizePeriodId(term.id),
+    codePoints: stringCodePoints(term.id)
+  }));
+  const missingTerms = [];
+  const conflictingTerms = [];
+  const sourcePeriodIds = {};
+
+  for (const periodId of AKITO_TARGET_PERIOD_IDS) {
+    const matches = normalizedTerms.filter(term => term.normalizedId === periodId);
+    if (!matches.length) missingTerms.push(periodId);
+    if (matches.length === 1) sourcePeriodIds[periodId] = matches[0].id;
+    if (matches.length > 1) {
+      conflictingTerms.push({
+        periodId,
+        sourceIds: matches.map(term => term.id)
+      });
+    }
+  }
+
+  return { normalizedTerms, missingTerms, conflictingTerms, sourcePeriodIds };
 }
 
 async function commitDocumentDeletes(documents) {
@@ -193,11 +224,11 @@ async function commitDocumentDeletes(documents) {
   }
 }
 
-function expectedAkitoRules() {
+function expectedAkitoRules(sourcePeriodIds) {
   return [
-    ...akitoSchoolRules("2026-2"),
-    ...akitoSchoolRules("2026-3"),
-    ...akitoSummerRules("2026-summer")
+    ...akitoSchoolRules(sourcePeriodIds["2026-2"]),
+    ...akitoSchoolRules(sourcePeriodIds["2026-3"]),
+    ...akitoSummerRules(sourcePeriodIds["2026-summer"])
   ];
 }
 
@@ -229,13 +260,17 @@ function verifyAkitoRules(snapshot, expectedRules) {
   const periodCounts = Object.fromEntries(
     AKITO_TARGET_PERIOD_IDS.map(periodId => [
       periodId,
-      snapshot.docs.filter(document => document.data().periodId === periodId).length
+      snapshot.docs.filter(document =>
+        normalizePeriodId(document.data().periodId) === periodId
+      ).length
     ])
   );
   if (periodCounts["2026-2"] !== 4) errors.push("2026-2が4件ではありません");
   if (periodCounts["2026-3"] !== 4) errors.push("2026-3が4件ではありません");
   if (periodCounts["2026-summer"] !== 3) errors.push("2026-summerが3件ではありません");
-  if (snapshot.docs.some(document => document.data().periodId === "2026-1")) {
+  if (snapshot.docs.some(document =>
+    normalizePeriodId(document.data().periodId) === "2026-1"
+  )) {
     errors.push("2026-1のruleが残っています");
   }
 
@@ -249,23 +284,25 @@ exports.syncAkitoRewardRules = onCall({ region: REGION }, async request => {
     throw new HttpsError("failed-precondition", "学期設定がありません。");
   }
 
+  const termValidation = validateAkitoTargetTerms(terms.docs);
   logger.info("Akito term identifiers", {
-    terms: terms.docs.map(term => ({
-      id: term.id,
-      codePoints: stringCodePoints(term.id),
-      label: term.data().label || null,
-      periodId: term.data().periodId || null,
-      termId: term.data().termId || null
-    }))
+    terms: termValidation.normalizedTerms
   });
 
-  const missingTerms = AKITO_TARGET_PERIOD_IDS.filter(periodId =>
-    !terms.docs.some(term => term.id === periodId)
-  );
+  const { missingTerms, conflictingTerms } = termValidation;
   if (missingTerms.length) {
     throw new HttpsError(
       "failed-precondition",
       `必要な期間設定がありません：${missingTerms.join(", ")}`
+    );
+  }
+  if (conflictingTerms.length) {
+    const details = conflictingTerms.map(conflict =>
+      `${conflict.periodId} (${conflict.sourceIds.join(" / ")})`
+    );
+    throw new HttpsError(
+      "failed-precondition",
+      `同一期間として扱われる期間設定が複数あります：${details.join(", ")}`
     );
   }
 
@@ -274,7 +311,7 @@ exports.syncAkitoRewardRules = onCall({ region: REGION }, async request => {
     .get();
   await commitDocumentDeletes(existing.docs);
 
-  const rules = expectedAkitoRules();
+  const rules = expectedAkitoRules(termValidation.sourcePeriodIds);
   const createBatch = db.batch();
   rules.forEach(rule => createBatch.set(rule.ref, rule.data));
   await createBatch.commit();
