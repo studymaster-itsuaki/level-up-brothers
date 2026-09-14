@@ -171,6 +171,7 @@ function isChildPeriodSettled(childId,periodId,records,payments){
  const paid=payments.filter(p=>p.childId===childId&&p.periodId===periodId&&p.status!=='cancelled').reduce((sum,p)=>sum+(Number(p.amount)||0),0);
  return earned>0&&paid>=earned;
 }
+function isRuleOpenForRegistration(r,records,payments,date=new Date()){const periodId=periodIdForDate(date);return normalizePeriodId(r.periodId)===periodId&&!isChildPeriodSettled(profile.childId,r.periodId,records,payments)}
 async function isRecordLocked(record){
  const [records,payments]=await Promise.all([getAllRecords(),getAllPayments()]);
  return isChildPeriodSettled(record.childId,record.periodId,records,payments);
@@ -292,8 +293,8 @@ async function showRecordForm(){
  editingRecord=null;selectedFiles=[];retainedPhotos=[];const v=$('view');
  v.innerHTML='<section class="card"><h2>登録</h2><div class="muted">登録できるものを読み込んでいます…</div></section>';
  try{
-  currentRules=await loadChildRules(profile.childId);
-  const selectable=currentRules.filter(r=>r.category!=='specialReward'&&!(profile.childId==='akito'&&normalizePeriodId(r.periodId)==='2026-1'));
+  const [rules,records,payments]=await Promise.all([loadChildRules(profile.childId),getChildRecords(profile.childId),getAllPayments()]);currentRules=rules;
+  const selectable=currentRules.filter(r=>r.category!=='specialReward'&&isRuleOpenForRegistration(r,records,payments)&&!(profile.childId==='akito'&&normalizePeriodId(r.periodId)==='2026-1'));
   if(!selectable.length){v.innerHTML='<section class="card"><div class="empty">現在、登録できるものはありません。</div></section>';return}
   const periods=[...new Set(selectable.map(r=>r.periodId))];
   const iconFor=r=>{const n=(r.name||'');if(n.includes('単元'))return'📝';if(n.includes('定期'))return'📚';if(n.includes('自主'))return'✏️';if(n.includes('野球'))return'⚾';if(n.includes('通知表'))return'🏫';if(n.includes('宿題'))return'📒';if(n.includes('講習'))return'🗓️';return'✓'};
@@ -416,10 +417,11 @@ function compressImageInWorker(file,targetBytes=110*1024){return new Promise((re
 async function compressImageSafely(file){try{return await compressImageInWorker(file)}catch(error){console.warn('[LUB Photos] worker compression unavailable',{message:error.message});if(/Android/i.test(navigator.userAgent))throw new Error(`この端末で安全な画像処理を開始できませんでした：${error.message}`);await yieldPhotoUi();return await compressImageToDataUrl(file,110*1024)}}
 async function buildPhotosForSave(out){const photos=retainedPhotos.slice(0,5).map(p=>({data:p.data||null,url:p.url||null,path:p.path||null,bytes:Number(p.bytes)||0}));for(let i=0;i<selectedFiles.length&&photos.length<5;i++){const item=selectedFiles[i],file=item.file;status(out,`画像を処理しています…（${i+1}/${selectedFiles.length}）\nこのままお待ちください。`);photoDebug('compression started after submit',file,{source:item.source,index:i+1,total:selectedFiles.length,worker:true});await yieldPhotoUi();const compressed=await compressImageSafely(file);photoDebug('compression completed',file,{source:item.source,compressedBytes:compressed.bytes,width:compressed.width||null,height:compressed.height||null,worker:true});photoDebug('before photos add',file,{nextPhotoCount:photos.length+1});photos.push({data:compressed.dataUrl,url:null,path:null,bytes:compressed.bytes});await yieldPhotoUi()}console.info('[LUB Photos] photos array ready for Firestore',{photoCount:photos.length,totalBytes:photos.reduce((sum,p)=>sum+(Number(p.bytes)||0),0)});return photos}
 async function submitRecord(r){
- const btn=$('submitRecord'),out=$('recordStatus');btn.disabled=true;const inputs=collectInputs(r),err=validate(r,inputs);if(err){status(out,err,'error');btn.disabled=false;return}
+ const btn=$('submitRecord'),out=$('recordStatus');btn.disabled=true;const [records,payments]=await Promise.all([getChildRecords(profile.childId),getAllPayments()]);if(!isRuleOpenForRegistration(r,records,payments)){status(out,'この期間の新しい申請は受け付けていません。','error');btn.disabled=false;return}const inputs=collectInputs(r),err=validate(r,inputs);if(err){status(out,err,'error');btn.disabled=false;return}
  const dup=await duplicateMessage(r,inputs);if(dup){status(out,dup,'error');btn.disabled=false;return}
  try{
   const amount=recalculate(r);const photos=await buildPhotosForSave(out);const finalDup=await duplicateMessage(r,inputs);if(finalDup){status(out,finalDup,'error');return}
+  const [latestRecords,latestPayments]=await Promise.all([getChildRecords(profile.childId),getAllPayments()]);if(!isRuleOpenForRegistration(r,latestRecords,latestPayments)){status(out,'この期間の新しい申請は受け付けていません。','error');return}
   status(out,'申請を保存しています…');
   await addDoc(collection(db,'records'),{childId:profile.childId,childUid:user.uid,childDisplayName:profile.displayName,periodId:r.periodId,ruleId:r.id,ruleName:r.name,ruleCategory:r.category,calculationType:r.calculationType,calculatedAmount:amount,status:'pending',inputs,evidenceType:r.evidenceType,photos,photoData:null,photoBytes:0,photoUrl:null,photoPath:null,createdAt:serverTimestamp(),updatedAt:serverTimestamp(),firstSubmittedAt:serverTimestamp(),submittedBy:user.uid,ruleSnapshot:{name:r.name,description:r.description||'',amount:r.calculationType==='fixedPerTestPeriod'?500:(r.amount||null),unitAmount:r.unitAmount||null,countLabel:r.countLabel||null,scoreTiers:r.scoreTiers||null,reviewPerfectBonus:r.reviewPerfectBonus||null,amountPerSubject:r.amountPerSubject||null,dailyCap:r.dailyCap||null}});
   showSubmitSuccess(r,amount)
